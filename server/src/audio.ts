@@ -38,20 +38,30 @@ export function toOggOpusTimed(input: Buffer): Promise<{ data: Buffer; durationS
   });
 }
 
-/** Signal-Sprachnachricht: AAC (ADTS), Mono – so nehmen die Signal-Apps selbst auf und können es überall abspielen.
- *  OGG/Opus zeigt Signal auf dem iPhone nur als Datei an. */
-export function toAac(input: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', 'pipe:0', '-vn', '-map_metadata', '-1', '-ac', '1', '-ar', '44100', '-c:a', 'aac', '-b:a', '48k', '-f', 'adts', 'pipe:1']);
-    const out: Buffer[] = [];
-    let err = '';
-    p.stdout.on('data', (d) => out.push(d));
-    p.stderr.on('data', (d) => (err += d));
-    p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve(Buffer.concat(out)) : reject(new Error('ffmpeg: ' + err.trim()))));
-    p.stdin.on('error', () => {});
-    p.stdin.end(input);
-  });
+/** Signal-Sprachnachricht: AAC in M4A (MP4-Container), Mono – so nehmen die Signal-Apps auf dem iPhone selbst auf.
+ *  Rohes AAC (ADTS) zeigt Signal auf dem iPhone ohne Länge und Wellenform (0:00) an, OGG/Opus sogar nur als Datei.
+ *  64 kbit/s, damit der eingebaute AAC-Encoder von ffmpeg nicht rauscht. MP4 braucht einen durchsuchbaren Ausgang (Index vorn), daher Temp-Datei. */
+export async function toM4a(input: Buffer): Promise<Buffer> {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'chorus-voice-'));
+  const dst = join(dir, 'voice.m4a');
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const p = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', 'pipe:0', '-vn', '-map_metadata', '-1', '-ac', '1', '-ar', '48000',
+        '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', '-f', 'mp4', dst]);
+      let err = '';
+      p.stderr.on('data', (d) => (err += d));
+      p.on('error', reject);
+      p.on('close', (code) => (code === 0 ? resolve() : reject(new Error('ffmpeg: ' + err.trim()))));
+      p.stdin.on('error', () => {});
+      p.stdin.end(input);
+    });
+    return await readFile(dst);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 /** Für Safari/iOS: Opus/OGG (WhatsApp, Telegram) in MP3 umwandeln, das jeder Browser abspielt. */
