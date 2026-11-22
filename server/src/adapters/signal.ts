@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { toAac } from '../audio.js';
+import { toM4a } from '../audio.js';
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -467,10 +467,11 @@ export class SignalAdapter implements Adapter {
 
   async sendFile(chat: string, f: OutgoingFile, caption?: string, replyTo?: string | null, mentions?: Mention[]) {
     if (f.voice) {
-      // Echte Sprachnachricht (mit Abspielknopf beim Empfänger) statt „sprachnachricht.ogg“: AAC wie die Signal-Apps und Kennzeichen voiceNote
-      const aac = await toAac(f.data);
+      // Echte Sprachnachricht (mit Abspielknopf, Länge und Wellenform beim Empfänger): AAC in M4A wie die Signal-App auf dem iPhone, Kennzeichen voiceNote.
+      // Aus der Originalaufnahme kodieren, nicht aus dem Opus für WhatsApp/Telegram – doppelt verlustbehaftet klang es rauschig.
+      const aac = await toM4a(f.source ?? f.data);
       const r = await this.sendRetry({ ...this.target(chat), message: caption ?? '', voiceNote: true,
-        attachments: [`data:audio/aac;filename=sprachnachricht.aac;base64,${aac.toString('base64')}`], ...this.quote(replyTo) }, 5 * 60_000);
+        attachments: [`data:audio/mp4;filename=sprachnachricht.m4a;base64,${aac.toString('base64')}`], ...this.quote(replyTo) }, 5 * 60_000);
       return `${r.timestamp}:${this.me}`;
     }
     // Große Dateien (Videos) nicht als Base64 durch JSON-RPC schicken, sondern als Datei im Arbeitsverzeichnis von signal-cli.

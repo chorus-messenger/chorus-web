@@ -215,6 +215,8 @@ export interface OutgoingFile {
   /** Als GIF/Animation senden (WhatsApp gifPlayback, Telegram Animation) */
   gif?: boolean;
   durationSec?: number;
+  /** Sprachnachricht: unveränderte Browser-Aufnahme, damit Signal (AAC) nicht aus dem schon verlustbehafteten Opus neu kodiert */
+  source?: Buffer;
   /** Bildmaße eines Videos (vom Browser gemessen), damit der Platz im Chat freigehalten wird */
   width?: number;
   height?: number;

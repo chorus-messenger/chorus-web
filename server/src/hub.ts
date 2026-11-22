@@ -383,7 +383,7 @@ export class Hub {
     if (file.voice) {
       // Immer neu kodieren: Browser-Aufnahmen (auch „audio/ogg“) haben oft fehlende Längenangaben oder andere Abtastraten, die WhatsApp nicht laden kann
       const { data, durationSec } = await toOggOpusTimed(file.data);
-      file = { ...file, data, mime: 'audio/ogg', name: file.name.replace(/\.[^.]+$/, '') + '.ogg', durationSec: Math.max(1, Math.round(file.durationSec || durationSec)) };
+      file = { ...file, source: file.source ?? file.data, data, mime: 'audio/ogg', name: file.name.replace(/\.[^.]+$/, '') + '.ogg', durationSec: Math.max(1, Math.round(file.durationSec || durationSec)) };
     }
     const fileId = this.store.storeFile(file.data);
     const kind = file.voice ? 'voice' : file.mime.startsWith('image/') ? 'image' : file.mime.startsWith('video/') ? 'video' : file.mime.startsWith('audio/') ? 'audio' : 'file';
