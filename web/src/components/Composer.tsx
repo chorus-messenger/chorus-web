@@ -259,9 +259,13 @@ export function Composer({ chat, onPickLang, draftId, serverDraft, placeholder, 
   const startRec = async () => {
     if (disabled) return onError(T('Messenger ist gerade nicht verbunden.'));
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      const mime = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/mp4'].find((m) => MediaRecorder.isTypeSupported(m)) ?? '';
-      const r = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+      // Safari/iPhone: AAC (audio/mp4) mit Apples eigenem Encoder. Safaris WebM/Opus-Aufnahme klang rauschig, auch in Chorus selbst.
+      const webkit = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Android|Edg\//.test(navigator.userAgent);
+      const order = webkit ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus'] : ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/mp4'];
+      const mime = order.find((m) => MediaRecorder.isTypeSupported(m)) ?? '';
+      // Großzügige Datenrate: Der Server kodiert ohnehin je Messenger neu, eine knappe Aufnahme klingt danach doppelt schlecht
+      const r = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 96000 } : undefined);
       chunks.current = []; cancelRec.current = false;
       r.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
       const start = Date.now();
