@@ -466,22 +466,19 @@ export class SignalAdapter implements Adapter {
   }
 
   async sendFile(chat: string, f: OutgoingFile, caption?: string, replyTo?: string | null, mentions?: Mention[]) {
-    if (f.voice) {
-      // Echte Sprachnachricht (mit Abspielknopf, Länge und Wellenform beim Empfänger): AAC in M4A wie die Signal-App auf dem iPhone, Kennzeichen voiceNote.
-      // Aus der Originalaufnahme kodieren, nicht aus dem Opus für WhatsApp/Telegram – doppelt verlustbehaftet klang es rauschig.
-      const aac = await toM4a(f.source ?? f.data);
-      const r = await this.sendRetry({ ...this.target(chat), message: caption ?? '', voiceNote: true,
-        attachments: [`data:audio/mp4;filename=sprachnachricht.m4a;base64,${aac.toString('base64')}`], ...this.quote(replyTo) }, 5 * 60_000);
-      return `${r.timestamp}:${this.me}`;
-    }
+    // Echte Sprachnachricht (mit Abspielknopf, Länge und Wellenform beim Empfänger): AAC in M4A wie die Signal-App auf dem iPhone, Kennzeichen voiceNote.
+    // Aus der Originalaufnahme kodieren, nicht aus dem Opus für WhatsApp/Telegram. Wie alle Dateien über den Pfad senden, nicht als data:-URI –
+    // so kam die Aufnahme beim Empfänger rauschig und ohne Länge (0:00) an.
+    const voice = f.voice ? { data: await toM4a(f.source ?? f.data), name: 'sprachnachricht.m4a' } : null;
     // Große Dateien (Videos) nicht als Base64 durch JSON-RPC schicken, sondern als Datei im Arbeitsverzeichnis von signal-cli.
     // Der Dateiname bleibt erhalten, damit der Empfänger ihn sieht.
     const dir = join(this.dir, 'outgoing', randomUUID());
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const path = join(dir, f.name.replace(/[\/\\]/g, '_') || 'datei');
-    writeFileSync(path, f.data, { mode: 0o600 });
+    const path = join(dir, voice?.name ?? (f.name.replace(/[\/\\]/g, '_') || 'datei'));
+    writeFileSync(path, voice?.data ?? f.data, { mode: 0o600 });
     try {
-      const r = await this.sendRetry({ ...this.target(chat), message: caption ?? '', attachments: [path], ...this.quote(replyTo), ...this.mention(mentions) }, 10 * 60_000);
+      const r = await this.sendRetry({ ...this.target(chat), message: caption ?? '', attachments: [path], ...(voice ? { voiceNote: true } : {}),
+        ...this.quote(replyTo), ...this.mention(mentions) }, 10 * 60_000);
       return `${r.timestamp}:${this.me}`;
     } finally {
       rmSync(dir, { recursive: true, force: true });
