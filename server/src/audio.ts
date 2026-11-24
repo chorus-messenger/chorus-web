@@ -160,3 +160,58 @@ export function waveform(input: Buffer, bars = 64): Promise<Uint8Array> {
     p.stdin.end(input);
   });
 }
+
+/** ffprobe: Container und Codecs der ersten Video- und Tonspur */
+function probe(file: string): Promise<{ format: string; video?: string; audio?: string }> {
+  return new Promise((resolve, reject) => {
+    const p = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=format_name:stream=codec_type,codec_name', '-of', 'json', file]);
+    let out = '', err = '';
+    p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (err += d));
+    p.on('error', reject);
+    p.on('close', (code) => {
+      if (code !== 0) return reject(new Error('ffprobe: ' + err.trim().slice(-200)));
+      try {
+        const j = JSON.parse(out);
+        const s = (t: string) => (j.streams ?? []).find((x: any) => x.codec_type === t)?.codec_name as string | undefined;
+        resolve({ format: String(j.format?.format_name ?? ''), video: s('video'), audio: s('audio') });
+      } catch (e) { reject(e); }
+    });
+  });
+}
+
+/**
+ * Video für WhatsApp vorbereiten: WhatsApp-Apps nehmen nur MP4 mit H.264/AAC zuverlässig an. iPhone-Videos kommen als
+ * MOV, oft mit HEVC – solche Nachrichten nimmt der WhatsApp-Server zwar an (ein Haken), die Empfänger aber nie (kein
+ * zweiter Haken). H.264 wird nur umverpackt (schnell), alles andere neu kodiert, die lange Seite auf 1280 px begrenzt
+ * (wie WhatsApp selbst), damit es auf dem kleinen Server zügig geht.
+ */
+export async function toWhatsAppVideo(input: Buffer): Promise<{ data: Buffer; info: string }> {
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'chorus-wa-video-'));
+  const src = join(dir, 'in'), dst = join(dir, 'out.mp4');
+  try {
+    await writeFile(src, input, { mode: 0o600 });
+    const p = await probe(src);
+    const copyV = p.video === 'h264';
+    const copyA = !p.audio || p.audio === 'aac';
+    const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', src, '-map', '0:v:0', '-map', '0:a:0?'];
+    if (copyV) args.push('-c:v', 'copy');
+    else args.push('-vf', "scale=w='if(gte(iw,ih),min(1280,iw),-2)':h='if(gte(iw,ih),-2,min(1280,ih))',format=yuv420p",
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', '-profile:v', 'high', '-level', '4.0');
+    if (copyA) args.push('-c:a', 'copy'); else args.push('-c:a', 'aac', '-b:a', '128k');
+    args.push('-movflags', '+faststart', '-map_metadata', '-1', dst);
+    await new Promise<void>((resolve, reject) => {
+      const f = spawn('ffmpeg', args);
+      let err = '';
+      f.stderr.on('data', (d) => (err += d));
+      f.on('error', reject);
+      f.on('close', (code) => (code === 0 ? resolve() : reject(new Error('ffmpeg: ' + err.trim().split('\n').slice(-2).join(' ')))));
+    });
+    return { data: await readFile(dst), info: `${p.format} ${p.video ?? '-'}/${p.audio ?? '-'} → mp4 ${copyV ? 'umverpackt' : 'h264 neu kodiert'}` };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

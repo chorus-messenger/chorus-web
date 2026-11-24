@@ -8,7 +8,7 @@ import { encryptPollVote, optionIndexes, tryDecryptPollVote } from '../wapoll.js
 import { randomBytes } from 'node:crypto';
 import { replaceMentions } from '../mentions.js';
 import type { AdapterFactory } from '../hub.js';
-import { waveform } from '../audio.js';
+import { waveform, toWhatsAppVideo } from '../audio.js';
 
 const logger = pino({ level: process.env.WA_LOG_LEVEL ?? 'silent' });
 
@@ -479,6 +479,15 @@ export class WhatsAppAdapter implements Adapter {
     const ments = cap?.mentions ? { mentions: cap.mentions } : {};
     if (cap) caption = cap.text;
     const wave = f.voice ? await waveform(f.data).catch(() => undefined) : undefined;
+    let videoInfo = '';
+    if (!f.voice && !f.gif && f.mime.startsWith('video/')) {
+      const t0 = Date.now();
+      try {
+        const v = await toWhatsAppVideo(f.data);
+        videoInfo = `${f.mime} ${v.info}, ${f.data.length} → ${v.data.length} Bytes in ${Math.round((Date.now() - t0) / 1000)} s`;
+        f = { ...f, data: v.data, mime: 'video/mp4', name: f.name.replace(/\.[^.]+$/, '') + '.mp4' };
+      } catch (e: any) { videoInfo = `${f.mime} unverändert (Umwandlung fehlgeschlagen: ${e?.message ?? e})`; }
+    }
     const content = f.voice
       ? { audio: f.data, ptt: true, mimetype: 'audio/ogg; codecs=opus', seconds: Math.max(1, Math.round(f.durationSec ?? 1)), waveform: wave }
       : f.mime.startsWith('image/') && !f.mime.includes('svg') ? { image: f.data, caption, mimetype: f.mime, ...ments }
@@ -489,6 +498,10 @@ export class WhatsAppAdapter implements Adapter {
     if (f.voice) {
       const a = r?.message?.audioMessage;
       console.log(`[whatsapp] Sprachnachricht: ${f.data.length} Bytes, ${Math.round(f.durationSec ?? 0)} s, Upload ${a?.directPath ? 'ok' : 'ohne directPath'}, ${a?.fileLength ?? '?'} Bytes verschlüsselt`);
+    }
+    if (videoInfo) {
+      const v = r?.message?.videoMessage;
+      console.log(`[whatsapp] Video: ${videoInfo}, Upload ${v?.directPath ? 'ok' : 'ohne directPath'}, Vorschaubild ${v?.jpegThumbnail?.length ? 'ja' : 'nein'}`);
     }
     if (r?.key) this.keys.set(r.key.id!, r.key);
     return r!.key.id!;
