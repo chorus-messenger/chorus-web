@@ -194,6 +194,7 @@ export class TelegramAdapter implements Adapter {
       ts: m.date * 1000,
       text: poll ? '📊 ' + poll.question : m.message ?? '',
       ...(poll ? { poll } : {}),
+      ...(m.mentioned ? { mentionsMe: true } : {}),
       replyToRemoteId: m.replyTo?.replyToMsgId ? String(m.replyTo.replyToMsgId) : null,
       edited: !!m.editDate && !m.editHide,
       deleted: false,

@@ -399,6 +399,7 @@ export class SignalAdapter implements Adapter {
       fromMe,
       ts: d.timestamp,
       text: poll ? '📊 ' + poll.question : this.withMentions(d),
+      ...(this.me && Array.isArray(d.mentions) && d.mentions.some((x: any) => x?.uuid === this.me) ? { mentionsMe: true } : {}),
       ...(poll ? { poll } : {}),
       replyToRemoteId: d.quote ? `${d.quote.id}:${d.quote.authorUuid ?? d.quote.authorNumber}` : null,
       edited: false,

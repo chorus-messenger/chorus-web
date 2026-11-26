@@ -20,7 +20,7 @@ export class AutopilotRunner {
   /** Gruppe: je nach Einstellung Frage, Erwähnung (Nummer/@Name) oder Antwort auf eine eigene Nachricht */
   private concernsMe(chat: Chat, msg: Message, trigger: Autopilot['trigger'] = 'me'): boolean {
     const t = msg.text ?? '';
-    if (trigger === 'all') return true;
+    if (trigger === 'all' || msg.mentionsMe) return true;
     if (trigger === 'me' && t.includes('?')) return true;
     if (msg.replyToRemoteId && this.hub.store.getMessage(`${chat.id}:${msg.replyToRemoteId}`)?.fromMe) return true;
     const self = this.hub.selfOf(chat.accountId)?.replace(/[^\d]/g, '');
@@ -32,8 +32,8 @@ export class AutopilotRunner {
     const a = chat.autopilot;
     if (!a?.on || !chat.aiEnabled || chat.kind === 'channel' || a.used >= a.max) return;
     if (chat.kind === 'group') {
-      if (a.only?.length && !a.only.includes(msg.senderId)) return;
-      if (!this.concernsMe(chat, msg, a.trigger)) return;
+      if (a.only?.length && !a.only.includes(msg.senderId)) { console.log(`[autopilot] ${chat.id}: Absender nicht freigegeben`); return; }
+      if (!this.concernsMe(chat, msg, a.trigger)) { console.log(`[autopilot] ${chat.id}: Nachricht betrifft mich nicht (${a.trigger ?? 'me'})`); return; }
     }
     clearTimeout(this.timers.get(chat.id));
     this.timers.set(chat.id, setTimeout(() => this.reply(chat.id), DEBOUNCE_MS));
@@ -48,7 +48,7 @@ export class AutopilotRunner {
       const a = chat?.autopilot;
       if (!chat || !a?.on || !chat.aiEnabled || a.used >= a.max) return;
       const text = await this.ai.autoReply(chatId, a.note, a.max - a.used, { rule: a.rule, style: a.style, group: chat.kind === 'group', trigger: a.trigger });
-      if (!text) return;
+      if (!text) { console.log(`[autopilot] ${chatId}: KI sieht keinen Antwortbedarf`); return; }
       // Kennzeichnung: 🤖 als Reaktion auf die eigene Nachricht; Telegram erlaubt 🤖 nicht als Reaktion, dort „– 🤖“ anhängen
       const suffix = a.mark && chat.network === 'telegram';
       const sent = await this.hub.sendText(chatId, suffix ? `${text} – 🤖` : text);

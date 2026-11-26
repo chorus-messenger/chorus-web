@@ -142,6 +142,8 @@ export interface Message {
   /** Sprache des Nachrichtentexts (deutscher Name), wenn translation eine Übersetzung ins Deutsche ist.
    *  Bei eigenen, übersetzt gesendeten Nachrichten leer: dann ist translation das deutsche Original. */
   translationFrom?: string | null;
+  /** Nur live für den Autopiloten: Nachricht erwähnt mich (wird nicht gespeichert) */
+  mentionsMe?: boolean;
   /** Nur live bei fehlgeschlagenem Senden: Grund (wird nicht gespeichert) */
   error?: string;
   /** E-Mail: bereinigtes Original-HTML (verschlüsselt gespeichert, fileId); abrufbar über /api/messages/:id/html */
@@ -186,7 +188,7 @@ export interface AdapterEvents {
   status(s: AccountStatus): void;
   chat(c: Omit<Chat, 'id' | 'accountId' | 'network' | 'unread' | 'pinned' | 'muted'> & { unread?: number }): void;
   /** historic: aus dem Verlauf nachgeladen (keine neue Nachricht, keine Push-Benachrichtigung) */
-  message(m: Omit<Message, 'id' | 'chatId' | 'reactions'> & { chatRemoteId: string; reactions?: Reaction[]; historic?: boolean }): void;
+  message(m: Omit<Message, 'id' | 'chatId' | 'reactions'> & { chatRemoteId: string; reactions?: Reaction[]; historic?: boolean; mentionsMe?: boolean }): void;
   /** by: wer bestätigt hat (Gruppen), wann und ob abgespielt (Sprachnachricht/Video); ohne by zählt die Bestätigung für den Chat */
   messageUpdate(chatRemoteId: string, remoteId: string, patch: Partial<Pick<Message, 'text' | 'edited' | 'deleted' | 'status'>>, by?: ReceiptBy): void;
   reactions(chatRemoteId: string, remoteId: string, reactions: Reaction[]): void;
