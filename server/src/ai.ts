@@ -312,8 +312,22 @@ Schreibe Titel auf ${LANG_DE[this.lang].name}. Nichts erfinden: Wenn nichts davo
   }
 
   /** Autopilot: Antwort auf die letzten Nachrichten, oder null, wenn keine Antwort nötig ist */
+  /** Autopilot: ein paar ältere Nachrichten (vor dem aktuellen Verlauf, bis 30 Tage zurück) für Rückbezüge und Running Gags */
+  private olderBits(chatId: string, beforeTs: number): string {
+    const since = Date.now() - 30 * 86400_000;
+    const pool = this.store.listMessages(chatId, beforeTs, 400)
+      .filter((m) => !m.deleted && m.ts > since && (m.text ?? '').trim().length >= 12);
+    if (!pool.length) return '';
+    // zufällige Auswahl, jedes Mal anders, damit nicht immer dieselbe alte Geschichte hochkommt
+    const pick = pool.map((m) => ({ m, r: Math.random() })).sort((a, b) => a.r - b.r).slice(0, 25).map((x) => x.m).sort((a, b) => a.ts - b.ts);
+    const fmt = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short', timeZone: process.env.TZ || 'Europe/Berlin' });
+    return pick.map((m) => `[${fmt.format(m.ts)}] ${m.fromMe ? 'Ich' : m.senderName || 'Kontakt'}: ${describe(m).slice(0, 300)}`).join('\n');
+  }
+
   async autoReply(chatId: string, note: string, left: number, opt: { rule?: string; style?: 'me' | 'short' | 'creative'; group?: boolean; trigger?: 'me' | 'direct' | 'all' } = {}): Promise<string | null> {
-    const t = this.transcript(chatId, 40);
+    const t = this.transcript(chatId, 60);
+    const first = this.store.listMessages(chatId, undefined, 60)[0];
+    const older = first ? this.olderBits(chatId, first.ts) : '';
     const style = opt.style === 'short' ? 'Stil: kurz, sachlich und freundlich, ohne Emojis und ohne Smalltalk.'
       : opt.style === 'creative' ? 'Stil: kreativ, witzig und locker, gern mit einem Augenzwinkern und passenden Emojis, aber nie verletzend. Bleib trotzdem bei den Regeln unten.'
       : 'Stil: wie der Nutzer selbst.';
@@ -326,10 +340,11 @@ Schreibe Titel auf ${LANG_DE[this.lang].name}. Nichts erfinden: Wenn nichts davo
 Schreibe in der Sprache, im Ton und im Stil des Nutzers aus dem Verlauf (Duzen/Siezen, Länge, Emojis), kurz wie eine echte Chatnachricht.
 Mache keine Zusagen, Termine, Bestellungen, Zahlungen oder Versprechen, die nicht ausdrücklich in den Hinweisen des Nutzers stehen. Gib keine privaten Daten heraus. Bei wichtigen oder heiklen Fragen sag freundlich, dass sich der Nutzer selbst meldet.
 Ist keine Antwort nötig (z. B. nur "ok", ein Emoji, ein Danke oder das Gespräch ist beendet), setze send auf false.
-${groupRule}
+Abwechslung: Lies den ganzen Verlauf, nicht nur die letzte Nachricht, und geh auf das ein, was gerade neu ist. Wiederhole dich nicht: keine Inhalte, Formulierungen, Witze oder Satzanfänge, die "Ich" schon in den letzten Nachrichten geschrieben hat. Bleib nicht an einem Thema hängen, nur weil es vorher schon dran war.
+${older ? 'Unter "Ältere Nachrichten" stehen ein paar zufällige Nachrichten von früher. Du darfst gelegentlich (nicht jedes Mal) etwas davon aufgreifen, z. B. als Rückbezug oder Running Gag, wenn es natürlich passt und niemanden bloßstellt.\n' : ''}${groupRule}
 ${style}${rule}
 Noch ${left} automatische Antwort(en) erlaubt.${left <= 1 ? ' Das ist die letzte: Schließe freundlich ab und kündige an, dass sich der Nutzer später selbst meldet.' : ''}`,
-      `${t.text}\n\nHinweise des Nutzers für die Vertretung: ${note || '(keine)'}`,
+      `${older ? `Ältere Nachrichten aus diesem Chat (nur für Rückbezüge):\n<frueher>\n${older}\n</frueher>\n\n` : ''}${t.text}\n\nHinweise des Nutzers für die Vertretung: ${note || '(keine)'}`,
       { maxTokens: 1500, schema: { type: 'object', properties: { send: { type: 'boolean' }, text: { type: 'string' } }, required: ['send', 'text'], additionalProperties: false } });
     try {
       const j = JSON.parse(raw) as { send: boolean; text: string };
