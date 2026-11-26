@@ -112,7 +112,7 @@ export class Hub {
         if (!store.getChat(cid)) {
           store.upsertChat({ accountId, network, remoteId: m.chatRemoteId, title: m.senderName || m.chatRemoteId, kind: 'direct', lastTs: 0, lastText: '' });
         }
-        const { chatRemoteId: _c, historic, ...rest } = m;
+        const { chatRemoteId: _c, historic, mentionsMe, ...rest } = m;
         rest.attachments = rest.attachments.map(fixKind);
         const prevLastTs = store.getChat(cid)!.lastTs;
         const { msg, isNew } = store.upsertMessage({ ...rest, chatId: cid });
@@ -135,7 +135,7 @@ export class Hub {
             else if (age < NOTIFY_MAX_AGE) this.emit({ type: 'notify', chat, message: msg });
             else if (age < 6 * 3600_000) console.log(`[push] keine Benachrichtigung: Nachricht kam ${Math.round(age / 60_000)} Min. zu spät (${chat.id})`);
           }
-          if (Date.now() - msg.ts < 5 * 60_000) this.fire(msg.fromMe ? this.own : this.incoming, chat, msg);
+          if (Date.now() - msg.ts < 5 * 60_000) this.fire(msg.fromMe ? this.own : this.incoming, chat, mentionsMe ? { ...msg, mentionsMe } : msg);
           if (msg.attachments.some((a) => !a.fileId)) this.queueMedia(msg.id, !!msg.viewOnce);
           this.draftSent(cid, msg);
         }
