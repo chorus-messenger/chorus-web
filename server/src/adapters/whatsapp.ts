@@ -151,6 +151,8 @@ export class WhatsAppAdapter implements Adapter {
 
     sock.ev.on('contacts.upsert', (cs) => { for (const c of cs) this.setName(c.id, c.name || c.notify || c.verifiedName); });
     sock.ev.on('contacts.update', (cs) => { for (const c of cs) if (c.id) this.setName(c.id, c.name || c.notify || c.verifiedName); });
+    // Chat auf dem Handy als gelesen markiert/geöffnet (App-State-Sync): Chorus zählt ihn nicht mehr als ungelesen
+    sock.ev.on('chats.update', (ups) => { for (const c of ups) if (c.id && c.unreadCount === 0) this.ev.readElsewhere(jidNormalizedUser(c.id)); });
     sock.ev.on('chats.upsert', (chats) => { for (const c of chats) this.upsertChat(c.id ?? "", c.name ?? undefined, Number(c.conversationTimestamp ?? 0) * 1000, c.unreadCount ?? undefined); });
     sock.ev.on('messaging-history.set', ({ chats, contacts, messages }) => {
       for (const c of contacts) this.setName(c.id, c.name || c.notify || c.verifiedName);
@@ -173,6 +175,8 @@ export class WhatsAppAdapter implements Adapter {
           // Bestätigungen kommen oft mit der LID statt der Telefonnummer als Chat: dann über die Nachrichten-ID suchen
           this.ev.messageUpdate(chat.endsWith('@lid') ? '*' : chat, key.id, { status: st }, update.status >= 5 ? { played: true } : undefined);
         }
+        // Eingehende Nachricht auf dem Handy/einem anderen Gerät gelesen („read-self“)
+        if (update.status != null && update.status >= 4 && !key.fromMe) this.ev.readElsewhere(chat.endsWith('@lid') ? '*' : chat, key.id);
         if (update.message) this.onMessage({ key, ...update } as WAMessage, true);
       }
     });

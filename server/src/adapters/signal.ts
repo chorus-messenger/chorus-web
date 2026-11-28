@@ -337,6 +337,13 @@ export class SignalAdapter implements Adapter {
       return;
     }
 
+    // Auf dem Handy gelesen (Sync): Chat über die gelesene Nachricht finden
+    const reads = env.syncMessage?.readMessages;
+    if (Array.isArray(reads) && reads.length) {
+      for (const r of reads) { const who = r.senderUuid ?? r.senderNumber ?? r.sender; if (who && r.timestamp) this.ev.readElsewhere('*', `${r.timestamp}:${who}`); }
+      return;
+    }
+
     // Vom eigenen Handy gesendet (Sync)
     const sent = env.syncMessage?.sentMessage;
     if (sent) {

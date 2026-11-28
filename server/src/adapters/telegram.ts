@@ -234,6 +234,11 @@ export class TelegramAdapter implements Adapter {
       const peer = u instanceof Api.UpdateUserTyping ? new Api.PeerUser({ userId: u.userId })
         : u instanceof Api.UpdateChatUserTyping ? new Api.PeerChat({ chatId: u.chatId }) : new Api.PeerChannel({ channelId: u.channelId });
       this.ev.typing(utils.getPeerId(peer).toString(), !(u.action instanceof Api.SendMessageCancelAction));
+    } else if (u instanceof Api.UpdateReadHistoryInbox) {
+      // Auf einem anderen Gerät gelesen
+      if (!u.stillUnreadCount) this.ev.readElsewhere(utils.getPeerId(u.peer).toString(), String(u.maxId));
+    } else if (u instanceof Api.UpdateReadChannelInbox) {
+      if (!u.stillUnreadCount) this.ev.readElsewhere(utils.getPeerId(new Api.PeerChannel({ channelId: u.channelId })).toString(), String(u.maxId));
     } else if (u instanceof Api.UpdateReadHistoryOutbox) {
       this.ev.messageUpdate(utils.getPeerId(u.peer).toString(), `<=${u.maxId}`, { status: 'read' });
     }
