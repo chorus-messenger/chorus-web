@@ -229,7 +229,7 @@ export const api = {
   watchSettings: (b: WatchSettings) => req<WatchState>('PUT', '/api/watch/settings', b),
   watchLink: (code: string, name: string) => req<WatchState>('POST', '/api/watch/link', { code, name }),
   watchRemove: (id: string) => req<WatchState>('DELETE', `/api/watch/devices/${encodeURIComponent(id)}`),
-  pushSubscribe: (s: PushSubscription) => req('POST', '/api/push/subscribe', { subscription: s.toJSON() }),
+  pushSubscribe: (s: PushSubscription, replaces?: string) => req('POST', '/api/push/subscribe', { subscription: s.toJSON(), replaces }),
   pushUnsubscribe: (endpoint: string) => req('POST', '/api/push/unsubscribe', { endpoint }),
   pushTest: (endpoint: string) => req('POST', '/api/push/test', { endpoint }),
   setPushPreview: (preview: boolean) => req('PUT', '/api/push', { preview }),
@@ -382,7 +382,9 @@ export function connectEvents(onEvent: (e: HubEvent) => void, onStatus: (online:
   let timer: ReturnType<typeof setTimeout> | null = null;
   let opened = false;
   let hiddenAt = 0;
+  let lastIn = Date.now();
   const open = () => {
+    lastIn = Date.now();
     if (timer) { clearTimeout(timer); timer = null; }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const sock = new WebSocket(`${proto}://${location.host}/api/ws`);
@@ -394,8 +396,10 @@ export function connectEvents(onEvent: (e: HubEvent) => void, onStatus: (online:
       opened = true;
     };
     sock.onmessage = (m) => {
+      lastIn = Date.now();
       try {
         const e = JSON.parse(m.data);
+        if (e?.type === 'hb') return;
         // Server fragt vor dem Auslassen einer Push-Nachricht nach, ob die App wirklich offen ist. Eine eingefrorene App antwortet nicht.
         if (e?.type === 'visCheck') { if (document.visibilityState === 'visible') sock.send(JSON.stringify({ type: 'visAck', n: e.n })); return; }
         onEvent(e);
@@ -434,7 +438,13 @@ export function connectEvents(onEvent: (e: HubEvent) => void, onStatus: (online:
   const sendVisibility = () => { if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'visibility', visible: document.visibilityState === 'visible', endpoint })); };
   const onVis = () => { sendVisibility(); wake(); if (document.visibilityState === 'visible') void loadEndpoint().then(sendVisibility); };
   // Solange die App offen ist, regelmäßig „sichtbar“ melden; bleibt das aus (App eingefroren), schickt der Server wieder Push
-  const beat = setInterval(() => { if (document.visibilityState === 'visible') void loadEndpoint().then(sendVisibility); }, 20_000);
+  // Der Server antwortet auf jede Meldung. Kommt 50 s lang nichts, ist die Verbindung still tot (iOS, WLAN ↔ Mobilfunk):
+  // neu verbinden. Vorher kamen dann in der offenen App keine Nachrichten und Hinweise mehr, bis man sie neu öffnete.
+  const beat = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (ws && ws.readyState <= 1 && Date.now() - lastIn > 50_000) { hiddenAt = Date.now() - 10_000; wake(); return; }
+    void loadEndpoint().then(sendVisibility);
+  }, 20_000);
   document.addEventListener('visibilitychange', onVis);
   window.addEventListener('pagehide', sendVisibility);
   window.addEventListener('pageshow', wake);

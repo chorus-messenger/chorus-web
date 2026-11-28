@@ -21,7 +21,10 @@ export async function syncPush(force = false): Promise<PushSubscription | null> 
     const cur = s?.options?.applicationServerKey;
     if (s && cur && btoa(String.fromCharCode(...new Uint8Array(cur))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') !== key.replace(/=+$/, '')) { await s.unsubscribe().catch(() => {}); s = null; }
     if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(key) });
-    await api.pushSubscribe(s);
+    // Hat sich das Abo geändert, das alte beim Server abmelden (sonst doppelte Mitteilungen)
+    const prev = localStorage.getItem('inbox:push-ep') || undefined;
+    await api.pushSubscribe(s, prev && prev !== s.endpoint ? prev : undefined);
+    localStorage.setItem('inbox:push-ep', s.endpoint);
     localStorage.setItem('inbox:push', '1');
     return s;
   } catch { return null; }

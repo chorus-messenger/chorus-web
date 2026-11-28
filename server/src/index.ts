@@ -1586,6 +1586,8 @@ app.register(async (f) => {
         if (m?.type === 'visibility') {
           if (typeof m.endpoint === 'string' && m.endpoint.length < 2000) socketEndpoint.set(socket, m.endpoint);
           if (m.visible) visibleSince.set(socket, Date.now()); else visibleSince.delete(socket);
+          // Lebenszeichen zurück: Die App merkt so, wenn die Verbindung still tot ist (iOS, Netzwechsel), und verbindet neu
+          if (socket.readyState === 1) socket.send('{"type":"hb"}');
         }
         if (m?.type === 'visAck' && typeof m.n === 'number') visChecks.get(m.n)?.(socket);
       } catch { /* ignorieren */ }
@@ -1645,8 +1647,10 @@ app.get('/api/push', async (req) => {
 });
 app.post('/api/push/subscribe', async (req) => {
   const h = H(req);
-  const b = req.body as { subscription?: any };
+  const b = req.body as { subscription?: any; replaces?: string };
   const sub = b?.subscription;
+  // Neues Abo desselben Geräts: das alte sofort entfernen, sonst kämen Mitteilungen doppelt, bis Apple/Google es verwirft
+  if (typeof b?.replaces === 'string' && b.replaces !== sub?.endpoint) push.remove(h.store, b.replaces);
   if (!sub?.endpoint || !/^https:\/\//.test(sub.endpoint) || !sub.keys?.p256dh || !sub.keys?.auth) throw Object.assign(new Error('Ungültige Anmeldung'), { statusCode: 400 });
   push.add(h.store, { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, ua: String(req.headers['user-agent'] ?? '').slice(0, 200), created: Date.now() });
   return { ok: true };

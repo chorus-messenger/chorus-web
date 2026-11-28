@@ -87,10 +87,36 @@ self.addEventListener('push', (e) => {
     const img = d.image && !ios ? loadImage(d.image) : Promise.resolve(undefined);
     return img.then((image) => self.registration.showNotification(d.title || 'Chorus', {
       body: d.body || '', tag: d.tag || d.chatId || undefined, renotify: true, image,
-      data: { chatId: d.chatId || null }, icon: '/icon-192.png?v=4', badge: '/icon-192.png?v=4',
-    }));
+      data: { chatId: d.chatId || null, msgId: d.msgId || null }, icon: '/icon-192.png?v=4', badge: '/icon-192.png?v=4',
+    })).then(() => Promise.all([tidy(d), badge(d)])).then(() => {
+      // App ist offen (iOS zeigt trotzdem immer eine Mitteilung): Die App zeigt ihren eigenen Hinweis und räumt die Mitteilung weg
+      for (const c of cs) c.postMessage({ type: 'pushed', chatId: d.chatId || null, msgId: d.msgId || null, tag: d.tag || null });
+    });
   }));
 });
+// Mitteilungen von Chats schließen, die inzwischen gelesen sind (in Chorus auf einem anderen Gerät oder im Messenger selbst).
+// Der Server schickt bei jeder Push die noch ungelesenen Chats als kurze Prüfsummen mit (siehe chatHash in server/src/push.ts).
+function chatHash(id) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+function tidy(d) {
+  if (typeof d.unread !== 'string') return Promise.resolve();
+  const keep = new Set(d.unread ? d.unread.split(',') : []);
+  return self.registration.getNotifications().then((ns) => {
+    for (const n of ns) {
+      const id = n.data && n.data.chatId;
+      if (!id || id === d.chatId || n.tag !== id) continue; // Erinnerungen, Test und die gerade gezeigte bleiben
+      if (!keep.has(chatHash(id))) n.close();
+    }
+  }).catch(() => {});
+}
+function badge(d) {
+  const nav = self.navigator;
+  if (typeof d.badge !== 'number' || !nav.setAppBadge) return Promise.resolve();
+  return (d.badge > 0 ? nav.setAppBadge(d.badge) : nav.clearAppBadge()).catch(() => {});
+}
 function loadImage(url) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 5000);
