@@ -242,6 +242,7 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
       // Mitteilung wegräumen und stattdessen den Hinweis in der App zeigen
       if (d?.type === 'pushed' && document.visibilityState === 'visible') {
         closeNotifications(d.tag);
+        applyBadge(unreadRef.current); // der Service Worker hat eben die Zahl des Servers gesetzt; die App weiß es genauer
         const c = d.chatId ? chatsRef.current.get(d.chatId) : undefined;
         if (c && d.msgId && d.chatId !== activeRef.current) {
           const m = messagesRef.current.get(d.chatId)?.find((x) => x.id === d.msgId);
@@ -280,6 +281,7 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
   chatsRef.current = chats;
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const unreadRef = useRef(0);
   const openChat = useCallback((id: string | null) => {
     const go = () => {
       if (id) { if (location.hash !== '#chat=' + encodeURIComponent(id)) location.hash = 'chat=' + encodeURIComponent(id); }
@@ -439,11 +441,20 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
   }, []);
   const sortedChats = useMemo(() => [...chats.values()].filter((c) => !gone.has(c.id)).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastTs - a.lastTs), [chats, gone]);
   const unreadTotal = useMemo(() => sortedChats.reduce((n, c) => n + (c.muted || c.archived ? 0 : c.unread), 0), [sortedChats]);
+  unreadRef.current = unreadTotal;
   useEffect(() => {
     document.title = unreadTotal ? T('({0}) Chorus', unreadTotal) : 'Chorus';
-    const n = navigator as any; // setAppBadge() ohne Zahl zeigt einen Punkt, deshalb bei 0 ausdrücklich löschen
-    (unreadTotal ? n.setAppBadge?.(unreadTotal) : n.clearAppBadge?.())?.catch?.(() => {});
+    applyBadge(unreadTotal);
   }, [unreadTotal]);
+  // Die Zahl am App-Symbol setzt auch der Service Worker bei jeder Push (Stand des Servers in dem Moment).
+  // Ändert sich in der App danach nichts an der Zahl, blieb die alte stehen (z. B. rote 1, obwohl alles gelesen ist).
+  // Deshalb beim Zurückkommen in die App die eigene Zahl immer neu setzen.
+  useEffect(() => {
+    const again = () => { if (document.visibilityState === 'visible') applyBadge(unreadRef.current); };
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener('focus', again);
+    return () => { document.removeEventListener('visibilitychange', again); window.removeEventListener('focus', again); };
+  }, []);
   // App offen: alle Benachrichtigungen aus der Mitteilungszentrale nehmen (Waynes Wunsch). Was neu ist, sieht man ja jetzt in der App.
   useEffect(() => {
     const clean = () => {
@@ -508,6 +519,12 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
       {panel === 'settings' && <Settings server={server} accounts={nets} onOpenChat={(id) => { setPanel(null); openChat(id); }} onClose={() => setPanel(null)} onAdd={() => setPanel('add')} onLocked={onLocked} onProfileChanged={onRefresh} onReload={reload} />}
     </div>
   );
+}
+
+/** Zahl am App-Symbol. setAppBadge() ohne Zahl zeigt einen Punkt, deshalb bei 0 ausdrücklich löschen */
+function applyBadge(n: number) {
+  const nav = navigator as any;
+  (n ? nav.setAppBadge?.(n) : nav.clearAppBadge?.())?.catch?.(() => {});
 }
 
 /** Mitteilungen eines Chats (tag = Chat-ID) bzw. alle schließen */
