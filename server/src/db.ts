@@ -223,6 +223,10 @@ export class Store {
     const r = this.q('SELECT c.*, a.network FROM chats c JOIN accounts a ON a.id=c.account_id WHERE c.id=?').get(id);
     return r ? this.rowToChat(r) : null;
   }
+  /** Chats mit Ungelesenem, die sich melden dürfen (für Push: alte Mitteilungen schließen, App-Symbol-Zahl) */
+  unreadChats(): { id: string; unread: number }[] {
+    return this.q('SELECT id, unread FROM chats WHERE unread > 0 AND muted = 0 AND archived = 0 ORDER BY last_ts DESC LIMIT 300').all() as { id: string; unread: number }[];
+  }
   listChats(): Chat[] {
     return this.q('SELECT c.*, a.network FROM chats c JOIN accounts a ON a.id=c.account_id ORDER BY c.pinned DESC, c.last_ts DESC LIMIT 1000').all().map((r) => this.rowToChat(r));
   }

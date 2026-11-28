@@ -118,8 +118,9 @@ export class Hub {
         const { msg, isNew } = store.upsertMessage({ ...rest, chatId: cid });
         if (isNew) {
           const preview = previewText(msg);
-          // Ungelesen nur zählen, wenn die Nachricht neuer ist als alles Bekannte (nicht beim Nachladen)
-          store.touchChat(cid, msg.ts, preview, !msg.fromMe && msg.ts > prevLastTs);
+          // Ungelesen nur zählen, wenn die Nachricht nicht älter ist als alles Bekannte (nicht beim Nachladen).
+          // Gleich alt zählt: Telegram meldet einen neuen Chat samt Zeit vor seiner ersten Nachricht.
+          store.touchChat(cid, msg.ts, preview, !msg.fromMe && msg.ts >= prevLastTs);
           // Archivierte Chats bleiben im Archiv und melden sich nicht
           const chat = store.getChat(cid)!;
           // Nur wenn der Messenger Profile liefern kann und verbunden ist (sonst nur Warnungen im Log; queueStaleContacts holt es nach dem Verbinden nach)

@@ -173,6 +173,8 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
       // Offener Chat bleibt gelesen: ein verspätetes „unread: 1“ vom Server nicht wieder anzeigen
       const open = linkedRef.current.includes(e.chat.id) && document.visibilityState === 'visible';
       setChats((cs) => new Map(cs).set(e.chat.id, open && e.chat.unread ? { ...e.chat, unread: 0 } : e.chat));
+      // Gelesen (hier, auf einem anderen Gerät oder im Messenger selbst): Mitteilungen dieses Chats wegräumen
+      if (!e.chat.unread && chatsRef.current.get(e.chat.id)?.unread) closeNotifications(e.chat.id);
     }
     else if (e.type === 'message') {
       setMessages((ms) => {
@@ -217,8 +219,12 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
   const [banner, setBanner] = useState<{ chat: Chat; text: string; n: number; msgId?: string } | null>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reminderUntil = useRef(0);
+  const bannered = useRef(new Set<string>());
   function showBanner(c: Chat, m: Message) {
     if (Date.now() < reminderUntil.current) return; // Erinnerung nicht von normalen Hinweisen verdrängen lassen
+    if (bannered.current.has(m.id)) return; // schon gezeigt (Live-Kanal und Push melden dieselbe Nachricht)
+    bannered.current.add(m.id);
+    if (bannered.current.size > 200) bannered.current = new Set([...bannered.current].slice(-100));
     const text = c.kind === 'direct' ? previewOf(m) : `${m.senderName}: ${previewOf(m)}`;
     setBanner((b) => ({ chat: c, text, n: (b?.n ?? 0) + 1 }));
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
@@ -229,7 +235,21 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
   useEffect(() => {
     const h = () => setActive(decodeURIComponent(location.hash.match(/chat=([^&]+)/)?.[1] ?? '') || null);
     window.addEventListener('hashchange', h);
-    const sw = (ev: MessageEvent) => ev.data?.openChat && openChat(ev.data.openChat);
+    const sw = (ev: MessageEvent) => {
+      const d = ev.data;
+      if (d?.openChat) openChat(d.openChat);
+      // Push kam, obwohl die App offen ist (Live-Kanal war kurz weg; iOS zeigt dann trotzdem eine Mitteilung):
+      // Mitteilung wegräumen und stattdessen den Hinweis in der App zeigen
+      if (d?.type === 'pushed' && document.visibilityState === 'visible') {
+        closeNotifications(d.tag);
+        const c = d.chatId ? chatsRef.current.get(d.chatId) : undefined;
+        if (c && d.msgId && d.chatId !== activeRef.current) {
+          const m = messagesRef.current.get(d.chatId)?.find((x) => x.id === d.msgId);
+          if (m) showBanner(c, m);
+          else api.messages(d.chatId).then((ms) => { const mm = ms.find((x) => x.id === d.msgId); if (mm) showBanner(chatsRef.current.get(d.chatId) ?? c, mm); }).catch(() => {});
+        }
+      }
+    };
     navigator.serviceWorker?.addEventListener('message', sw);
     // Beim Aufwachen nachfragen, ob eine Benachrichtigung angetippt wurde (falls die Nachricht unterwegs verloren ging)
     const ask = () => { if (document.visibilityState === 'visible') navigator.serviceWorker?.controller?.postMessage({ type: 'pending-open' }); };
@@ -258,6 +278,8 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
 
   const chatsRef = useRef(chats);
   chatsRef.current = chats;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const openChat = useCallback((id: string | null) => {
     const go = () => {
       if (id) { if (location.hash !== '#chat=' + encodeURIComponent(id)) location.hash = 'chat=' + encodeURIComponent(id); }
@@ -486,6 +508,12 @@ function Main({ server, live, snap, onLocked, onRefresh }: { server: ServerState
       {panel === 'settings' && <Settings server={server} accounts={nets} onOpenChat={(id) => { setPanel(null); openChat(id); }} onClose={() => setPanel(null)} onAdd={() => setPanel('add')} onLocked={onLocked} onProfileChanged={onRefresh} onReload={reload} />}
     </div>
   );
+}
+
+/** Mitteilungen eines Chats (tag = Chat-ID) bzw. alle schließen */
+function closeNotifications(tag?: string | null) {
+  navigator.serviceWorker?.ready.then((reg) => reg.getNotifications(tag ? { tag } : undefined))
+    .then((ns) => { for (const x of ns) x.close(); }).catch(() => {});
 }
 
 function notify(chat: Chat, m: Message) {
