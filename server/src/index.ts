@@ -12,6 +12,8 @@ import { fitJpeg, squareJpeg, thumbnail } from './thumbs.js';
 import { emojiCache } from './emoji.js';
 import { reSanitizeMailHtml } from './mailtext.js';
 import fastifyStatic from '@fastify/static';
+import compress from '@fastify/compress';
+import zlib from 'node:zlib';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -142,6 +144,11 @@ const logStream = {
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info', stream: logStream }, trustProxy: trustProxySetting() as boolean | string, bodyLimit: 2 * 1024 * 1024,
   // Nachrichten-IDs in Signal-Gruppen (Konto + Gruppen-ID + Zeit + UUID) sind länger als die Standardgrenze von 100 Zeichen → sonst „Bad Request“
   routerOptions: { maxParamLength: 1000 } });
+// Antworten komprimieren (App-Skript ~700 KB → ~200 KB, Chatliste/Verläufe als JSON auf einen Bruchteil).
+// Vorher ging alles unkomprimiert übers Mobilfunknetz; das machte vor allem den Kaltstart auf dem iPhone zäh.
+// Brotli nur mittlere Stufe: spart fast so viel wie die höchste, kostet auf dem kleinen Server aber kaum Rechenzeit.
+// Fotos/Videos/Audio sind schon komprimiert und bleiben, wie sie sind (encodings nur für Text-Typen, siehe mime-db).
+await app.register(compress, { global: true, threshold: 1024, encodings: ['br', 'gzip'], brotliOptions: { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } }, zlibOptions: { level: 6 } });
 await app.register(cookie);
 await app.register(websocket);
 await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 1 } });
