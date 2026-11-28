@@ -197,6 +197,19 @@ export class Hub {
         const msg = store.patchMessage(id, { reactions: remove ? others : [...others, r] });
         if (msg) this.emit({ type: 'message', message: msg });
       },
+      readElsewhere: (chatRemote, upTo) => {
+        let cid = chatRemote === '*' ? '' : chatId(chatRemote);
+        const ref = upTo ? (cid && store.getMessage(`${cid}:${upTo}`)) || store.getMessage(store.findByRemote(accountId, upTo)[0] ?? '') : null;
+        if (!cid && ref) cid = ref.chatId;
+        const chat = cid ? store.getChat(cid) : undefined;
+        if (!chat || !chat.unread || (upTo && !ref)) return;
+        // Nur bis zu einer Nachricht gelesen, danach kam aber noch etwas: bleibt ungelesen
+        const last = store.listMessages(cid, undefined, 1)[0];
+        if (ref && last && !last.fromMe && last.ts > ref.ts) return;
+        store.updateChat(cid, { unread: 0 });
+        console.log(`[push] woanders gelesen (${cid})`);
+        this.emit({ type: 'chat', chat: store.getChat(cid)! });
+      },
       typing: (chatRemote, on) => { const cid = chatId(chatRemote); if (store.getChat(cid)) this.emit({ type: 'typing', chatId: cid, on }); },
       storeFile: (data) => store.storeFile(data),
       getMessage: (chatRemote, remoteId) => store.getMessage(`${chatId(chatRemote)}:${remoteId}`),

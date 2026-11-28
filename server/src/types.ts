@@ -200,6 +200,8 @@ export interface AdapterEvents {
   reactionChange(chatRemoteId: string, remoteId: string, r: Reaction, remove: boolean): void;
   /** Jemand tippt gerade (on) oder hat aufgehört; wird nicht gespeichert, nur live weitergegeben */
   typing(chatRemoteId: string, on: boolean): void;
+  /** Im Messenger selbst (Handy, anderes Gerät) gelesen. upToRemoteId: bis zu dieser Nachricht; chatRemoteId '*' = Chat über die Nachricht suchen */
+  readElsewhere(chatRemoteId: string, upToRemoteId?: string): void;
   /** Speichert Bytes verschlüsselt und gibt eine fileId zurück */
   storeFile(data: Buffer): string;
   /** Bereits gespeicherte Nachricht nachschlagen */
